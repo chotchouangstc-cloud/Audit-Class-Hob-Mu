@@ -303,6 +303,9 @@
             <div id="fileNotice" class="alert alert-info mt-3 mb-0 py-2 d-none">
                 <i class="fa-solid fa-circle-info me-2"></i><span id="fileNoticeText"></span>
             </div>
+            <div id="errorMessage" class="alert alert-danger mt-3 mb-0 py-2 d-none">
+                <i class="fa-solid fa-circle-exclamation me-2"></i><span id="errorMessageText"></span>
+            </div>
         </div>
     </div>
 
@@ -388,9 +391,18 @@
     function showLoading() { document.getElementById('loadingModal').style.display = 'flex'; }
     function hideLoading() { document.getElementById('loadingModal').style.display = 'none'; }
 
-    // Multi-File & Sheet Processor Engine
+    function showError(msg) {
+        const errNotice = document.getElementById('errorMessage');
+        const errText = document.getElementById('errorMessageText');
+        if (errNotice && errText) {
+            errText.innerText = msg;
+            errNotice.classList.remove('d-none');
+        }
+    }
+
     async function processFiles(fileList) {
         showLoading();
+        document.getElementById('errorMessage').classList.add('d-none');
         let allSheets = [];
         let fileNames = [];
 
@@ -417,10 +429,10 @@
                 }
             }
 
-            // Route Sheets into Raw Data vs Summary Sheets
+            // Route Sheets into Raw Data vs Summary Sheets Store
             let parsedStore = categorizeAndExtractStore(allSheets);
             
-            // Perform Verification for All 5 Sections
+            // Perform Cell-by-Cell Verification for All 5 Sections
             let verificationResults = verifyAllSections(parsedStore);
 
             // Render Dashboard & UI Outputs
@@ -437,17 +449,16 @@
             document.getElementById('fileNoticeText').innerText = `ประมวลผลและตรวจสอบเรียบร้อยจาก ${fileList.length} ไฟล์ (${allSheets.length} Sheets)`;
 
         } catch (err) {
-            alert("เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: " + err.message);
+            showError("เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: " + err.message);
         } finally {
             hideLoading();
         }
     }
 
-    // Categorize Sheets
     function categorizeAndExtractStore(sheetList) {
         let store = {
             rawAll: [], rawPaid: [], rawUnbilled: [], rawNoise: [],
-            summarySec1: null, summarySec2: null, summarySec3: null, summarySec4: null, summarySec5: null
+            summarySec1: [], summarySec2: [], summarySec3: [], summarySec4: [], summarySec5: []
         };
 
         (sheetList || []).forEach(item => {
@@ -470,17 +481,45 @@
                     store.rawAll = store.rawAll.concat(parsedRows);
                 }
             } else {
-                // Summary Sheets
-                if (sName.includes('สรุปรายงาน') || sName.includes('summary')) store.summarySec1 = rows;
-                else if (sName.includes('แยกรายวัน_ตารางไขว้')) store.summarySec2 = rows;
-                else if (sName.includes('billingได้')) store.summarySec3 = rows;
-                else if (sName.includes('billingไม่ได้')) store.summarySec4 = rows;
-                else if (sName.includes('noise')) store.summarySec5 = rows;
+                // Summary Sheets - Store as objects containing sheetName & rows
+                let summaryObj = { sheetName: item.sheetName, fileName: item.fileName, rows };
+                if (sName.includes('สรุปรายงาน') || sName.includes('summary') || sName.includes('ส่วนที่ 1')) {
+                    store.summarySec1.push(summaryObj);
+                } else if (sName.includes('แยกรายวัน') || sName.includes('ส่วนที่ 2') || sName.includes('sec2')) {
+                    store.summarySec2.push(summaryObj);
+                } else if (sName.includes('billingได้') || sName.includes('billing_ได้') || sName.includes('ส่วนที่ 3') || sName.includes('sec3')) {
+                    store.summarySec3.push(summaryObj);
+                } else if (sName.includes('billingไม่ได้') || sName.includes('billing_ไม่ได้') || sName.includes('ส่วนที่ 4') || sName.includes('sec4')) {
+                    store.summarySec4.push(summaryObj);
+                } else if (sName.includes('noise') || sName.includes('ส่วนที่ 5') || sName.includes('sec5')) {
+                    store.summarySec5.push(summaryObj);
+                }
             }
         });
 
         if (store.rawAll.length === 0) store.rawAll = [...store.rawPaid, ...store.rawUnbilled, ...store.rawNoise];
         return store;
+    }
+
+    function normalizeDateString(v) {
+        if (!v) return '';
+        let s = String(v).trim();
+        let mSlash = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (mSlash) {
+            let day = mSlash[1].padStart(2, '0');
+            let month = mSlash[2].padStart(2, '0');
+            let year = mSlash[3];
+            if (year.length === 2) year = '20' + year;
+            return `${day}/${month}/${year}`;
+        }
+        let mDash = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if (mDash) {
+            let year = mDash[1];
+            let month = mDash[2].padStart(2, '0');
+            let day = mDash[3].padStart(2, '0');
+            return `${day}/${month}/${year}`;
+        }
+        return s;
     }
 
     function parseRowsToNormalizedObjects(jsonRows) {
@@ -513,9 +552,9 @@
 
             let obj = {
                 cond: getVal(['รถที่ไม่สามารถ', 'R'], 3),           // Col D
-                date: getVal(['วันที่ขาออก', 'Date'], 9),            // Col J
+                date: normalizeDateString(getVal(['วันที่ขาออก', 'Date'], 9)), // Col J
                 mClass: getVal(['ประเภทรถ'], 13),                   // Col N
-                mFee: numVal(getVal(['ค่าธรรมเนียมผ่านทาง'], 15)),  // Col P
+                mFee: numVal(getVal(['ค่าธรรมเนียมผ่านทาง', 'ค่าธรรมเนียม'], 15)),  // Col P
                 aClass: getVal(['match_real_vehicleClass'], 17),   // Col R
                 aFee: numVal(getVal(['match_real_fee'], 18))       // Col S
             };
@@ -533,9 +572,158 @@
         return isNaN(n) ? 0 : n;
     }
 
-    // -------------------------------------------------------------
-    // VERIFICATION CORE ENGINE
-    // -------------------------------------------------------------
+    function extractDailyCrossSummaryData(summaryItems, sectionFilter = null) {
+        let excelDaily = {};
+        if (!summaryItems || summaryItems.length === 0) return excelDaily;
+
+        let parseVal = (v) => {
+            if (v === undefined || v === null) return 0;
+            let s = String(v).trim();
+            if (s === '-' || s === '') return 0;
+            let numStr = s.replace(/,/g, '').replace(/^\((.*)\)$/, '-$1'); 
+            let n = parseFloat(numStr);
+            return isNaN(n) ? 0 : n;
+        };
+
+        let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
+
+        (summaryItems || []).forEach(item => {
+            let sName = String(item?.sheetName || '').toLowerCase();
+            let rows = item?.rows || [];
+            let isMoneySheet = sName.includes('เงิน') || sName.includes('บาท') || sName.includes('diff');
+            
+            let currentTableMode = isMoneySheet ? 'diffs' : 'counts';
+            let currentSection = 'mem';
+
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                if (!row || !Array.isArray(row)) continue;
+
+                let rowStr = row.map(c => String(c || '')).join(' ').toLowerCase();
+
+                if (rowStr.includes('illegal') || rowStr.includes('ผิดกฎหมาย') || rowStr.includes('กลุ่ม c') || rowStr.includes('ไม่เป็นสมาชิก')) {
+                    currentSection = 'ill';
+                } else if (rowStr.includes('member') || rowStr.includes('สมาชิก') || rowStr.includes('กลุ่ม a')) {
+                    currentSection = 'mem';
+                }
+
+                if (rowStr.includes('บาท') || rowStr.includes('ยอดเงิน') || rowStr.includes('ส่วนต่าง')) {
+                    currentTableMode = 'diffs';
+                } else if (rowStr.includes('จำนวน') || rowStr.includes('คัน')) {
+                    currentTableMode = 'counts';
+                }
+
+                if (sectionFilter && sectionFilter !== currentSection) {
+                    continue;
+                }
+
+                let dateIdx = row.findIndex(c => {
+                    if (typeof c !== 'string' && typeof c !== 'number') return false;
+                    let norm = normalizeDateString(String(c));
+                    return norm.match(/^\d{2}\/\d{2}\/\d{4}$/);
+                });
+
+                if (dateIdx !== -1) {
+                    let dateStr = normalizeDateString(String(row[dateIdx]));
+                    if (!excelDaily[dateStr]) {
+                        excelDaily[dateStr] = { counts: {}, diffs: {} };
+                    }
+
+                    let vals = [];
+                    for (let k = 1; k <= 9; k++) {
+                        vals.push(parseVal(row[dateIdx + k]));
+                    }
+
+                    if (currentTableMode === 'counts') {
+                        if (Object.keys(excelDaily[dateStr].counts).length === 0) {
+                            pairs.forEach((p, idx) => {
+                                excelDaily[dateStr].counts[p] = vals[idx];
+                            });
+                        }
+                    } else {
+                        if (Object.keys(excelDaily[dateStr].diffs).length === 0) {
+                            pairs.forEach((p, idx) => {
+                                excelDaily[dateStr].diffs[p] = vals[idx];
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+        return excelDaily;
+    }
+
+    function verifyDailyCrossSection(rawRows, summaryItems, labelPrefix = '', sectionFilter = null) {
+        let filtered = (rawRows || []).filter(r => !String(r?.cond || '').includes('R7'));
+        let trueDailyMap = {};
+        let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
+
+        filtered.forEach(r => {
+            let date = String(r?.date || 'ไม่ระบุ');
+            let mClass = String(r?.mClass || '').toUpperCase();
+            let aClass = String(r?.aClass || '').toUpperCase();
+            let diff = (r?.mFee || 0) - (r?.aFee || 0);
+
+            if (!trueDailyMap[date]) {
+                trueDailyMap[date] = {
+                    counts: {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0},
+                    diffs:  {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0}
+                };
+            }
+
+            let key = `${aClass}_${mClass}`;
+            if (trueDailyMap[date].counts.hasOwnProperty(key)) {
+                trueDailyMap[date].counts[key]++;
+                trueDailyMap[date].diffs[key] += diff;
+            }
+        });
+
+        let excelSummary = extractDailyCrossSummaryData(summaryItems, sectionFilter);
+        let mismatches = [];
+
+        if (excelSummary && Object.keys(excelSummary).length > 0) {
+            Object.keys(trueDailyMap).forEach(d => {
+                let trueData = trueDailyMap[d];
+                let excelData = excelSummary[d];
+
+                if (excelData) {
+                    pairs.forEach(p => {
+                        let pName = p.replace('_', 'x');
+                        let prefix = labelPrefix ? `${labelPrefix} - ` : '';
+
+                        if (excelData.counts && excelData.counts[p] !== undefined) {
+                            if (excelData.counts[p] !== trueData.counts[p]) {
+                                mismatches.push({
+                                    location: `${prefix}วันที่ ${d} (ตารางจำนวน คัน - ช่อง ${pName})`,
+                                    summaryVal: excelData.counts[p],
+                                    trueVal: trueData.counts[p]
+                                });
+                            }
+                        }
+                        if (excelData.diffs && excelData.diffs[p] !== undefined) {
+                            if (Math.abs(excelData.diffs[p] - trueData.diffs[p]) > 0.01) {
+                                mismatches.push({
+                                    location: `${prefix}วันที่ ${d} (ตารางยอดเงินส่วนต่าง บาท - ช่อง ${pName})`,
+                                    summaryVal: excelData.diffs[p],
+                                    trueVal: trueData.diffs[p]
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        return {
+            isPass: mismatches.length === 0,
+            mismatches,
+            rows: filtered,
+            trueDailyMap,
+            excelSummary
+        };
+    }
+
     function verifyAllSections(store) {
         return {
             sec1: verifySection1(store.rawAll, store.summarySec1),
@@ -547,10 +735,9 @@
     }
 
     // SECTION 1 VERIFICATION
-    function verifySection1(rawAll, summaryRows) {
+    function verifySection1(rawAll, summaryItems) {
         let filtered = (rawAll || []).filter(r => !String(r?.cond || '').includes('R7'));
 
-        // Calculated True Matrix & Daily
         let trueCount = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
         let trueDiff  = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
         let trueDaily = {};
@@ -573,9 +760,8 @@
             trueDaily[date].diff += diff;
         });
 
-        let excelSummary = extractSec1SummaryData(summaryRows, trueCount, trueDaily);
+        let excelSummary = extractSec1SummaryData(summaryItems, trueCount, trueDaily);
 
-        // Check Mismatches
         let mismatches = [];
         Object.keys(trueCount).forEach(k => {
             let sumVal = excelSummary.count3x3[k];
@@ -603,14 +789,13 @@
         };
     }
 
-    function extractSec1SummaryData(rows, trueCount, trueDaily) {
-        // ตั้งค่าเริ่มต้นให้ตรงกับของจริง เพื่อป้องกันระบบแจ้งเตือนมั่วหากหาตารางสรุปไม่เจอ
+    function extractSec1SummaryData(summaryItems, trueCount, trueDaily) {
         let summary = {
             count3x3: JSON.parse(JSON.stringify(trueCount)),
             daily: JSON.parse(JSON.stringify(trueDaily))
         };
 
-        if (!rows || rows.length === 0) return summary;
+        if (!summaryItems || summaryItems.length === 0) return summary;
 
         let classes = ['C1', 'C2', 'C3'];
         
@@ -618,53 +803,77 @@
             if (v === undefined || v === null) return 0;
             let s = String(v).trim();
             if (s === '-' || s === '') return 0;
-            // รองรับตัวเลขติดลบรูปแบบบัญชี เช่น (100)
             let numStr = s.replace(/,/g, '').replace(/^\((.*)\)$/, '-$1'); 
             let n = parseFloat(numStr);
             return isNaN(n) ? 0 : n;
         };
 
-        for (let i = 0; i < rows.length; i++) {
-            let row = rows[i];
-            if (!row || !Array.isArray(row)) continue;
-            
-            let dateIdx = row.findIndex(c => typeof c === 'string' && c.match(/^\d{2}\/\d{2}\/\d{4}$/));
-            if (dateIdx !== -1) {
-                let dateStr = row[dateIdx].trim();
-                summary.daily[dateStr] = {
-                    mFee: parseVal(row[dateIdx + 1]),
-                    aFee: parseVal(row[dateIdx + 2]),
-                    diff: parseVal(row[dateIdx + 3])
-                };
-            }
+        (summaryItems || []).forEach(item => {
+            let rows = item?.rows || [];
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                if (!row || !Array.isArray(row)) continue;
+                
+                let dateIdx = row.findIndex(c => {
+                    if (typeof c !== 'string' && typeof c !== 'number') return false;
+                    let norm = normalizeDateString(String(c));
+                    return norm.match(/^\d{2}\/\d{2}\/\d{4}$/);
+                });
 
-            let classIdx = row.findIndex(c => typeof c === 'string' && classes.includes(c.trim().toUpperCase()));
-            if (classIdx !== -1) {
-                let firstCell = row[classIdx].trim().toUpperCase();
-                summary.count3x3[`${firstCell}_C1`] = parseVal(row[classIdx + 1]);
-                summary.count3x3[`${firstCell}_C2`] = parseVal(row[classIdx + 2]);
-                summary.count3x3[`${firstCell}_C3`] = parseVal(row[classIdx + 3]);
+                if (dateIdx !== -1) {
+                    let dateStr = normalizeDateString(String(row[dateIdx]));
+                    summary.daily[dateStr] = {
+                        mFee: parseVal(row[dateIdx + 1]),
+                        aFee: parseVal(row[dateIdx + 2]),
+                        diff: parseVal(row[dateIdx + 3])
+                    };
+                }
+
+                let classIdx = row.findIndex(c => typeof c === 'string' && classes.includes(c.trim().toUpperCase()));
+                if (classIdx !== -1) {
+                    let firstCell = row[classIdx].trim().toUpperCase();
+                    summary.count3x3[`${firstCell}_C1`] = parseVal(row[classIdx + 1]);
+                    summary.count3x3[`${firstCell}_C2`] = parseVal(row[classIdx + 2]);
+                    summary.count3x3[`${firstCell}_C3`] = parseVal(row[classIdx + 3]);
+                }
             }
-        }
+        });
 
         return summary;
     }
 
     // SECTION 2, 3, 4, 5 VERIFICATION BUILDERS
-    function verifySection2(rawAll, summaryRows) {
-        return { isPass: true, mismatches: [], rows: (rawAll||[]).filter(r => !String(r?.cond||'').includes('R7')) };
-    }
-    function verifySection3(rawPaid, summaryRows) {
-        return { isPass: true, mismatches: [], rows: rawPaid || [] };
-    }
-    function verifySection4(rawUnbilled, summaryRows) {
-        return { isPass: true, mismatches: [], rows: rawUnbilled || [] };
-    }
-    function verifySection5(rawNoise, summaryRows) {
-        return { isPass: true, mismatches: [], rows: rawNoise || [] };
+    function verifySection2(rawAll, summaryItems) {
+        return verifyDailyCrossSection(rawAll, summaryItems, '');
     }
 
-    // RENDER DASHBOARD CARDS
+    function verifySection3(rawPaid, summaryItems) {
+        let memRows = (rawPaid || []).filter(r => String(r?.cond || '').trim() === '-');
+        let illRows = (rawPaid || []).filter(r => String(r?.cond || '').trim() !== '-');
+
+        let verMem = verifyDailyCrossSection(memRows, summaryItems, 'กลุ่ม A&B (member / nonmember)', 'mem');
+        let verIll = verifyDailyCrossSection(illRows, summaryItems, 'กลุ่ม C&D (ILLEGAL คิดเงินได้)', 'ill');
+
+        let mismatches = [...verMem.mismatches, ...verIll.mismatches];
+
+        return {
+            isPass: mismatches.length === 0,
+            mismatches,
+            memRows,
+            illRows,
+            verMem,
+            verIll
+        };
+    }
+
+    function verifySection4(rawUnbilled, summaryItems) {
+        return verifyDailyCrossSection(rawUnbilled, summaryItems, '');
+    }
+
+    function verifySection5(rawNoise, summaryItems) {
+        return verifyDailyCrossSection(rawNoise, summaryItems, '');
+    }
+
     function renderDashboardCards(res) {
         let grid = document.getElementById('dashboardStatusGrid');
         let parts = [
@@ -695,9 +904,6 @@
         grid.innerHTML = html;
     }
 
-    // -------------------------------------------------------------
-    // RENDER SECTION 1 UI (With Detailed Cell Mismatch & เฉลย)
-    // -------------------------------------------------------------
     function renderSec1UI(sec1) {
         let statusBox = document.getElementById('sec1-status-box');
         let outputBox = document.getElementById('sec1-output');
@@ -712,19 +918,18 @@
                     <p class="small mb-0">ตัวเลขในตารางสรุปตรงกันกับผลการคำนวณจริงจาก Raw Data 100%</p>
                 </div>`;
         } else {
-            let errItems = sec1.mismatches.map(m => `<li><b>${m.location}:</b> ในตารางสรุปเป็น <code>${m.summaryVal}</code> ❌ (เฉลยที่ถูกคือ <code>${m.trueVal}</code> 🟢)</li>`).join('');
+            let errItems = sec1.mismatches.map(m => `<li><b>${m.location}:</b> ในตารางสรุปเป็น <code>${m.summaryVal.toLocaleString('th-TH')}</code> ❌ (เฉลยที่ถูกคือ <code>${m.trueVal.toLocaleString('th-TH')}</code> 🟢)</li>`).join('');
             statusBox.innerHTML = `
                 <div class="status-box-fail">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <h5 class="fw-bold mb-0"><i class="fa-solid fa-triangle-exclamation me-2"></i>ผลการตรวจสอบส่วนที่ 1: ไม่ถูกต้อง (FAIL) - พบจุดคลาดเคลื่อน ${sec1.mismatches.length} ตำแหน่ง</h5>
                         <span class="badge-status-fail">🔴 พบข้อผิดพลาด</span>
                     </div>
-                    <p class="small mb-1 fw-bold">รายการที่ไม่ตรงกันระหว่างตารางสรุป กับ ผลคำนวณจาก Raw Data:</p>
+                    <p class="small mb-1 fw-bold">รายการที่ไม่ตรงกันระหว่างตารางสรุป ใน Excel กับ ผลคำนวณจาก Raw Data:</p>
                     <ul class="small mb-0 ps-3">${errItems}</ul>
                 </div>`;
         }
 
-        // Render Table 1 (Cross Count 3x3)
         let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
         let getCellHtml = (key, isCount=true) => {
             let trueV = isCount ? sec1.trueCount[key] : sec1.trueDiff[key];
@@ -732,11 +937,11 @@
 
             if (sumV !== undefined && sumV !== null && sumV !== trueV) {
                 return `<div class="cell-fail-box">
-                    <span class="text-danger fw-bold text-decoration-line-through me-1">${sumV}</span> ❌
-                    <div class="small text-success fw-bold">เฉลย: ${trueV}</div>
+                    <span class="text-danger fw-bold text-decoration-line-through me-1">${sumV.toLocaleString('th-TH')}</span> ❌
+                    <div class="small text-success fw-bold">เฉลย: ${trueV.toLocaleString('th-TH')}</div>
                 </div>`;
             }
-            return trueV === 0 ? '-' : isCount ? trueV : trueV.toLocaleString('th-TH',{minimumFractionDigits:2});
+            return trueV === 0 ? '-' : isCount ? trueV.toLocaleString('th-TH') : trueV.toLocaleString('th-TH',{minimumFractionDigits:2});
         };
 
         let html = `
@@ -768,7 +973,6 @@
             </div>
         </div>`;
 
-        // Render Table 3 (Daily Summary Table - ตารางใหญ่ รายวัน)
         let dailyRowsHtml = '';
         let totM = 0, totA = 0, totDiff = 0;
 
@@ -825,77 +1029,177 @@
         outputBox.innerHTML = html + table3Html;
     }
 
-    // -------------------------------------------------------------
-    // RENDER SECTION 2, 3, 4, 5 UI
-    // -------------------------------------------------------------
+    function renderDailySectionUI(secId, secData, title) {
+        let statusBox = document.getElementById(`${secId}-status-box`);
+        let outputBox = document.getElementById(`${secId}-output`);
+
+        if (secData.isPass) {
+            statusBox.innerHTML = `
+                <div class="status-box-pass">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-1"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบ${title}: ถูกต้อง (PASS)</h5>
+                        <span class="badge-status-pass">🟢 ตรงกันทุกรายการ</span>
+                    </div>
+                    <p class="small mb-0">ตัวเลขในตารางสรุปตรงกันกับผลการคำนวณจริงจาก Raw Data 100%</p>
+                </div>`;
+        } else {
+            let errItems = secData.mismatches.map(m => `<li><b>${m.location}:</b> ในตารางสรุปเป็น <code>${typeof m.summaryVal === 'number' ? m.summaryVal.toLocaleString('th-TH') : m.summaryVal}</code> ❌ (เฉลยที่ถูกคือ <code>${typeof m.trueVal === 'number' ? m.trueVal.toLocaleString('th-TH') : m.trueVal}</code> 🟢)</li>`).join('');
+            statusBox.innerHTML = `
+                <div class="status-box-fail">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <h5 class="fw-bold mb-0"><i class="fa-solid fa-triangle-exclamation me-2"></i>ผลการตรวจสอบ${title}: ไม่ถูกต้อง (FAIL) - พบจุดคลาดเคลื่อน ${secData.mismatches.length} ตำแหน่ง</h5>
+                        <span class="badge-status-fail">🔴 พบข้อผิดพลาด</span>
+                    </div>
+                    <p class="small mb-1 fw-bold">รายการที่ไม่ตรงกันระหว่างตารางสรุปใน Excel กับผลคำนวณจาก Raw Data:</p>
+                    <ul class="small mb-0 ps-3">${errItems}</ul>
+                </div>`;
+        }
+
+        outputBox.innerHTML = build9ColDailyHtml(secData.rows, secData.excelSummary, secData.trueDailyMap);
+    }
+
     function renderSec2UI(sec2) {
-        document.getElementById('sec2-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 2: ถูกต้อง (PASS)</h5></div>`;
-        document.getElementById('sec2-output').innerHTML = build9ColDailyHtml(sec2.rows);
+        renderDailySectionUI('sec2', sec2, 'ส่วนที่ 2: แยกรายวัน_ตารางไขว้');
     }
+
     function renderSec3UI(sec3) {
-        document.getElementById('sec3-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 3: ถูกต้อง (PASS)</h5></div>`;
-        let mem = sec3.rows.filter(r => r.cond === '-');
-        let ill = sec3.rows.filter(r => r.cond !== '-');
-        document.getElementById('sec3-output').innerHTML = `
-            <h6 class="fw-bold text-primary mb-2">กลุ่ม A & B: member / nonmember (Col D == '-')</h6>${build9ColDailyHtml(mem)}
-            <h6 class="fw-bold text-danger mt-4 mb-2">กลุ่ม C & D: ILLEGAL ที่เก็บบิลได้ (Col D != '-')</h6>${build9ColDailyHtml(ill)}`;
+        let statusBox = document.getElementById('sec3-status-box');
+        let outputBox = document.getElementById('sec3-output');
+
+        if (sec3.isPass) {
+            statusBox.innerHTML = `
+                <div class="status-box-pass">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-1"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 3: ตารางไขว้_Billingได้: ถูกต้อง (PASS)</h5>
+                        <span class="badge-status-pass">🟢 ตรงกันทุกรายการ</span>
+                    </div>
+                    <p class="small mb-0">ตัวเลขในตารางสรุปตรงกันกับผลการคำนวณจริงจาก Raw Data 100%</p>
+                </div>`;
+        } else {
+            let errItems = sec3.mismatches.map(m => `<li><b>${m.location}:</b> ในตารางสรุปเป็น <code>${typeof m.summaryVal === 'number' ? m.summaryVal.toLocaleString('th-TH') : m.summaryVal}</code> ❌ (เฉลยที่ถูกคือ <code>${typeof m.trueVal === 'number' ? m.trueVal.toLocaleString('th-TH') : m.trueVal}</code> 🟢)</li>`).join('');
+            statusBox.innerHTML = `
+                <div class="status-box-fail">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <h5 class="fw-bold mb-0"><i class="fa-solid fa-triangle-exclamation me-2"></i>ผลการตรวจสอบส่วนที่ 3: ไม่ถูกต้อง (FAIL) - พบจุดคลาดเคลื่อน ${sec3.mismatches.length} ตำแหน่ง</h5>
+                        <span class="badge-status-fail">🔴 พบข้อผิดพลาด</span>
+                    </div>
+                    <p class="small mb-1 fw-bold">รายการที่ไม่ตรงกันระหว่างตารางสรุปใน Excel กับผลคำนวณจาก Raw Data:</p>
+                    <ul class="small mb-0 ps-3">${errItems}</ul>
+                </div>`;
+        }
+
+        outputBox.innerHTML = `
+            <h6 class="fw-bold text-primary mb-2">กลุ่ม A & B: member / nonmember (Col D == '-')</h6>
+            ${build9ColDailyHtml(sec3.memRows, sec3.verMem.excelSummary, sec3.verMem.trueDailyMap)}
+            <h6 class="fw-bold text-danger mt-4 mb-2">กลุ่ม C & D: ILLEGAL ที่เก็บบิลได้ (Col D != '-')</h6>
+            ${build9ColDailyHtml(sec3.illRows, sec3.verIll.excelSummary, sec3.verIll.trueDailyMap)}`;
     }
+
     function renderSec4UI(sec4) {
-        document.getElementById('sec4-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 4: ถูกต้อง (PASS)</h5></div>`;
-        document.getElementById('sec4-output').innerHTML = build9ColDailyHtml(sec4.rows);
+        renderDailySectionUI('sec4', sec4, 'ส่วนที่ 4: ตารางไขว้_Billingไม่ได้');
     }
+
     function renderSec5UI(sec5) {
-        document.getElementById('sec5-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 5: ถูกต้อง (PASS)</h5></div>`;
-        document.getElementById('sec5-output').innerHTML = build9ColDailyHtml(sec5.rows);
+        renderDailySectionUI('sec5', sec5, 'ส่วนที่ 5: ตารางไขว้_Noise');
     }
 
-    function build9ColDailyHtml(rows) {
+    function build9ColDailyHtml(rows, excelSummary = null, trueDailyMap = null) {
         if (!rows || rows.length === 0) return '<div class="alert alert-warning py-2 small">ไม่พบข้อมูลคำนวณในหมวดนี้</div>';
+        
         let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
-        let datesMap = {};
+        let datesMap = trueDailyMap || {};
 
-        rows.forEach(r => {
-            let date = String(r?.date || 'ไม่ระบุ');
-            let mClass = String(r?.mClass || '').toUpperCase();
-            let aClass = String(r?.aClass || '').toUpperCase();
-            let diff = (r?.mFee || 0) - (r?.aFee || 0);
+        if (!trueDailyMap) {
+            datesMap = {};
+            rows.forEach(r => {
+                let date = String(r?.date || 'ไม่ระบุ');
+                let mClass = String(r?.mClass || '').toUpperCase();
+                let aClass = String(r?.aClass || '').toUpperCase();
+                let diff = (r?.mFee || 0) - (r?.aFee || 0);
 
-            if (!datesMap[date]) {
-                datesMap[date] = {
-                    counts: {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0},
-                    diffs:  {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0}
-                };
-            }
+                if (!datesMap[date]) {
+                    datesMap[date] = {
+                        counts: {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0},
+                        diffs:  {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0}
+                    };
+                }
 
-            let key = `${aClass}_${mClass}`;
-            if (datesMap[date].counts.hasOwnProperty(key)) {
-                datesMap[date].counts[key]++;
-                datesMap[date].diffs[key] += diff;
-            }
-        });
+                let key = `${aClass}_${mClass}`;
+                if (datesMap[date].counts.hasOwnProperty(key)) {
+                    datesMap[date].counts[key]++;
+                    datesMap[date].diffs[key] += diff;
+                }
+            });
+        }
 
         let tbody1 = '', tbody2 = '';
         let totC = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
         let totD = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
 
         Object.keys(datesMap).sort().forEach(d => {
-            let c = datesMap[d].counts;
-            let df = datesMap[d].diffs;
+            let trueCounts = datesMap[d].counts;
+            let trueDiffs = datesMap[d].diffs;
+            
+            let excelDateData = excelSummary ? excelSummary[d] : null;
+
             tbody1 += `<tr><td class="fw-bold">${d}</td>`;
             tbody2 += `<tr><td class="fw-bold">${d}</td>`;
 
             pairs.forEach(p => {
-                tbody1 += `<td>${c[p] || '-'}</td>`;
-                tbody2 += `<td>${df[p] ? df[p].toLocaleString('th-TH') : '-'}</td>`;
-                totC[p] += c[p]; totD[p] += df[p];
+                let tc = trueCounts[p] || 0;
+                let td = trueDiffs[p] || 0;
+
+                // Check Count Cell
+                let cellCountHtml = '';
+                if (excelDateData && excelDateData.counts && excelDateData.counts[p] !== undefined) {
+                    let ec = excelDateData.counts[p];
+                    if (ec !== tc) {
+                        cellCountHtml = `<div class="cell-fail-box">
+                            <span class="text-danger fw-bold text-decoration-line-through me-1">${ec.toLocaleString('th-TH')}</span> ❌
+                            <div class="small text-success fw-bold">เฉลย: ${tc.toLocaleString('th-TH')}</div>
+                        </div>`;
+                    } else {
+                        cellCountHtml = tc === 0 ? '-' : tc.toLocaleString('th-TH');
+                    }
+                } else {
+                    cellCountHtml = tc === 0 ? '-' : tc.toLocaleString('th-TH');
+                }
+
+                // Check Diff Amount Cell
+                let cellDiffHtml = '';
+                if (excelDateData && excelDateData.diffs && excelDateData.diffs[p] !== undefined) {
+                    let ed = excelDateData.diffs[p];
+                    if (Math.abs(ed - td) > 0.01) {
+                        cellDiffHtml = `<div class="cell-fail-box">
+                            <span class="text-danger fw-bold text-decoration-line-through me-1">${ed.toLocaleString('th-TH',{minimumFractionDigits:2})}</span> ❌
+                            <div class="small text-success fw-bold">เฉลย: ${td.toLocaleString('th-TH',{minimumFractionDigits:2})}</div>
+                        </div>`;
+                    } else {
+                        cellDiffHtml = td === 0 ? '-' : td.toLocaleString('th-TH',{minimumFractionDigits:2});
+                    }
+                } else {
+                    cellDiffHtml = td === 0 ? '-' : td.toLocaleString('th-TH',{minimumFractionDigits:2});
+                }
+
+                tbody1 += `<td>${cellCountHtml}</td>`;
+                tbody2 += `<td>${cellDiffHtml}</td>`;
+
+                totC[p] += tc;
+                totD[p] += td;
             });
 
-            tbody1 += `<td class="fw-bold bg-light">${pairs.reduce((s,p)=>s+c[p],0)}</td></tr>`;
-            tbody2 += `<td class="fw-bold bg-light">${pairs.reduce((s,p)=>s+df[p],0).toLocaleString('th-TH')}</td></tr>`;
+            let rowTotCount = pairs.reduce((s,p) => s + (trueCounts[p]||0), 0);
+            let rowTotDiff = pairs.reduce((s,p) => s + (trueDiffs[p]||0), 0);
+
+            tbody1 += `<td class="fw-bold bg-light">${rowTotCount.toLocaleString('th-TH')}</td></tr>`;
+            tbody2 += `<td class="fw-bold bg-light">${rowTotDiff.toLocaleString('th-TH',{minimumFractionDigits:2})}</td></tr>`;
         });
 
-        tbody1 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totC[p]}</td>`).join('') + `<td>${pairs.reduce((s,p)=>s+totC[p],0)}</td></tr>`;
-        tbody2 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totD[p].toLocaleString('th-TH')}</td>`).join('') + `<td>${pairs.reduce((s,p)=>s+totD[p],0).toLocaleString('th-TH')}</td></tr>`;
+        let grandTotCount = pairs.reduce((s,p) => s + totC[p], 0);
+        let grandTotDiff = pairs.reduce((s,p) => s + totD[p], 0);
+
+        tbody1 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totC[p].toLocaleString('th-TH')}</td>`).join('') + `<td>${grandTotCount.toLocaleString('th-TH')}</td></tr>`;
+        tbody2 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totD[p].toLocaleString('th-TH',{minimumFractionDigits:2})}</td>`).join('') + `<td>${grandTotDiff.toLocaleString('th-TH',{minimumFractionDigits:2})}</td></tr>`;
 
         let header = `<thead><tr><th rowspan="2">วันที่</th><th colspan="3">Audit: C1</th><th colspan="3">Audit: C2</th><th colspan="3">Audit: C3</th><th rowspan="2">รวม</th></tr><tr><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th></tr></thead>`;
 
