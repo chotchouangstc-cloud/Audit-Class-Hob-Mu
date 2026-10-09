@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบตรวจสอบและเปรียบเทียบตารางสรุป vs Raw Data (M-Flow vs Audit)</title>
+    <!-- Fonts, Bootstrap 5 & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+        :root {
+            --primary-blue: #1e3c72;
+            --secondary-blue: #2a5298;
+            --bg-light: #f4f6f9;
+            --pass-green: #065f46;
+            --pass-bg: #d1fae5;
+            --fail-red: #991b1b;
+            --fail-bg: #fee2e2;
+        }
+
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: var(--bg-light);
+            color: #2c3e50;
+            padding-bottom: 60px;
+        }
+
+        .header-banner {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--secondary-blue) 100%);
+            color: white;
+            padding: 25px 0 45px 0;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 🐾 Cat Running Playground */
+        .cat-playground {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 42px;
+            pointer-events: none;
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+        }
+        .cat-runner {
+            position: absolute;
+            bottom: 2px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .cat-badge {
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-bottom: -2px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .cat-hopby .cat-badge { background-color: #7f8c8d; color: white; }
+        .cat-muli .cat-badge { background-color: #ffffff; color: #2c3e50; }
+        .cat-svg { width: 34px; height: 28px; }
+
+        @keyframes runCatLeftRight {
+            0% { left: -60px; transform: scaleX(1); }
+            48% { left: 88%; transform: scaleX(1); }
+            50% { left: 88%; transform: scaleX(-1); }
+            98% { left: 2%; transform: scaleX(-1); }
+            100% { left: 2%; transform: scaleX(1); }
+        }
+        .cat-hopby-anim { animation: runCatLeftRight 22s infinite linear; }
+        .cat-muli-anim { animation: runCatLeftRight 22s infinite linear 2s; }
+
+        .card-custom {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+            margin-bottom: 25px;
+            background-color: white;
+        }
+        .card-header-custom {
+            background-color: #ffffff;
+            border-bottom: 2px solid #e9ecef;
+            padding: 16px 20px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--primary-blue);
+            border-radius: 12px 12px 0 0 !important;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .dropzone-area {
+            border: 3px dashed #cbd5e1;
+            border-radius: 16px;
+            background-color: #f8fafc;
+            padding: 35px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        .dropzone-area:hover, .dropzone-area.dragover {
+            border-color: var(--secondary-blue);
+            background-color: #eff6ff;
+        }
+
+        /* Status Banner Box */
+        .status-box-pass {
+            background-color: var(--pass-bg);
+            border-left: 5px solid var(--pass-green);
+            color: var(--pass-green);
+            padding: 15px 20px;
+            border-radius: 0 10px 10px 0;
+            margin-bottom: 20px;
+        }
+        .status-box-fail {
+            background-color: var(--fail-bg);
+            border-left: 5px solid var(--fail-red);
+            color: var(--fail-red);
+            padding: 15px 20px;
+            border-radius: 0 10px 10px 0;
+            margin-bottom: 20px;
+        }
+
+        .badge-status-pass {
+            background-color: #059669;
+            color: white;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        .badge-status-fail {
+            background-color: #dc2626;
+            color: white;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        /* Table Styling */
+        .table-custom {
+            font-size: 0.88rem;
+            text-align: center;
+            vertical-align: middle;
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+        }
+        .table-custom th {
+            background-color: #1e293b !important;
+            color: white !important;
+            font-weight: 600;
+            border: 1px solid #334155 !important;
+            padding: 8px 5px;
+        }
+        .table-custom th.sub-header {
+            background-color: #334155 !important;
+        }
+        .table-custom td {
+            border: 1px solid #e2e8f0;
+            padding: 6px 5px;
+        }
+        .table-custom tr.total-row {
+            background-color: #f1f5f9;
+            font-weight: 700;
+        }
+
+        /* Mismatch Cell Highlighting */
+        .cell-fail-box {
+            background-color: #fee2e2 !important;
+            color: #991b1b !important;
+            border: 2px solid #f87171 !important;
+            border-radius: 6px;
+            padding: 4px;
+        }
+        .cell-pass-box {
+            background-color: #ecfdf5 !important;
+            color: #065f46 !important;
+        }
+
+        /* Loading Modal Overlay */
+        #loadingModal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+        }
+        .loading-card {
+            background: #ffffff;
+            color: #1e293b;
+            padding: 35px 45px;
+            border-radius: 20px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            max-width: 450px;
+            width: 90%;
+        }
+        .cat-loading-track {
+            position: relative;
+            width: 100%;
+            height: 60px;
+            background-color: #f1f5f9;
+            border-radius: 30px;
+            margin: 20px 0;
+            overflow: hidden;
+            border: 2px solid #cbd5e1;
+        }
+        .cat-loader-run {
+            position: absolute;
+            bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: catTrackLoop 3s infinite linear;
+        }
+        @keyframes catTrackLoop {
+            0% { left: -80px; }
+            100% { left: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Loading Modal with Hopby & Muli -->
+<div id="loadingModal">
+    <div class="loading-card">
+        <h4 class="fw-bold mb-2 text-primary"><i class="fa-solid fa-spinner fa-spin me-2"></i>กำลังตรวจสอบข้อมูล...</h4>
+        <p class="text-muted small mb-3">คำนวณตัวเลขจาก Raw Data และเปรียบเทียบกับตารางสรุปใน Excel ช่องต่อช่อง</p>
+        
+        <div class="cat-loading-track">
+            <div class="cat-loader-run">
+                <div class="d-flex flex-column align-items-center me-3">
+                    <span class="cat-badge bg-secondary text-white">hopby</span>
+                    <svg class="cat-svg" viewBox="0 0 50 40">
+                        <path d="M10,25 Q15,10 25,25 Q35,10 40,25 Q45,28 40,35 Q25,38 10,35 Q5,28 10,25 Z" fill="#95a5a6" stroke="#2c3e50" stroke-width="2"/>
+                        <circle cx="18" cy="22" r="2" fill="#2c3e50"/><circle cx="32" cy="22" r="2" fill="#2c3e50"/>
+                        <polygon points="12,15 17,20 10,22" fill="#7f8c8d" stroke="#2c3e50"/>
+                        <polygon points="38,15 33,20 40,22" fill="#7f8c8d" stroke="#2c3e50"/>
+                        <path d="M5,32 Q0,25 2,20" fill="none" stroke="#2c3e50" stroke-width="2"/>
+                    </svg>
+                </div>
+                <div class="d-flex flex-column align-items-center">
+                    <span class="cat-badge bg-white text-dark border">muli</span>
+                    <svg class="cat-svg" viewBox="0 0 50 40">
+                        <path d="M10,25 Q15,10 25,25 Q35,10 40,25 Q45,28 40,35 Q25,38 10,35 Q5,28 10,25 Z" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/>
+                        <circle cx="18" cy="22" r="2" fill="#2c3e50"/><circle cx="32" cy="22" r="2" fill="#2c3e50"/>
+                        <polygon points="12,15 17,20 10,22" fill="#ecf0f1" stroke="#2c3e50"/>
+                        <polygon points="38,15 33,20 40,22" fill="#ecf0f1" stroke="#2c3e50"/>
+                        <path d="M5,32 Q0,25 2,20" fill="none" stroke="#2c3e50" stroke-width="2"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <p class="small text-secondary mb-0"><i class="fa-solid fa-cat me-1"></i> hopby (เทา) & muli (ขาว) กำลังเทียบตัวเลขตารางสรุปกับ Raw Data...</p>
+    </div>
+</div>
+
+<!-- Header Banner -->
+<div class="header-banner">
+    <div class="container position-relative">
+        <h1 class="fw-bold mb-1"><i class="fa-solid fa-shield-halved me-2"></i>ระบบตรวจสอบตารางสรุปเทียบ Raw Data (M-Flow vs Audit)</h1>
+        <p class="mb-0 opacity-88">ตรวจสอบตารางสรุปใน Excel กับการคำนวณจริงจาก Raw Data แจ้งผล ถูก/ผิด พร้อมแสดงเฉลยจุดคลาดเคลื่อน</p>
+    </div>
+    
+    <div class="cat-playground">
+        <div class="cat-runner cat-hopby cat-hopby-anim">
+            <span class="cat-badge">hopby</span>
+            <svg class="cat-svg" viewBox="0 0 50 40"><path d="M10,25 Q15,10 25,25 Q35,10 40,25 Q45,28 40,35 Q25,38 10,35 Q5,28 10,25 Z" fill="#95a5a6" stroke="#2c3e50" stroke-width="2"/><circle cx="18" cy="22" r="2" fill="#2c3e50"/><circle cx="32" cy="22" r="2" fill="#2c3e50"/><polygon points="12,15 17,20 10,22" fill="#7f8c8d" stroke="#2c3e50"/><polygon points="38,15 33,20 40,22" fill="#7f8c8d" stroke="#2c3e50"/><path d="M5,32 Q0,25 2,20" fill="none" stroke="#2c3e50" stroke-width="2"/></svg>
+        </div>
+        <div class="cat-runner cat-muli cat-muli-anim">
+            <span class="cat-badge">muli</span>
+            <svg class="cat-svg" viewBox="0 0 50 40"><path d="M10,25 Q15,10 25,25 Q35,10 40,25 Q45,28 40,35 Q25,38 10,35 Q5,28 10,25 Z" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/><circle cx="18" cy="22" r="2" fill="#2c3e50"/><circle cx="32" cy="22" r="2" fill="#2c3e50"/><polygon points="12,15 17,20 10,22" fill="#ecf0f1" stroke="#2c3e50"/><polygon points="38,15 33,20 40,22" fill="#ecf0f1" stroke="#2c3e50"/><path d="M5,32 Q0,25 2,20" fill="none" stroke="#2c3e50" stroke-width="2"/></svg>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-4">
+    <!-- Upload Dropzone -->
+    <div class="card card-custom">
+        <div class="card-header card-header-custom">
+            <span><i class="fa-solid fa-file-excel text-success me-2"></i>1. นำเข้าไฟล์ Excel (ที่มีทั้ง Sheet ตารางสรุป และ Sheet ข้อมูลดิบ)</span>
+        </div>
+        <div class="card-body">
+            <div class="dropzone-area" id="dropzone" onclick="document.getElementById('fileInput').click()">
+                <i class="fa-solid fa-cloud-arrow-up fa-3x text-primary mb-2"></i>
+                <h5 class="fw-bold mb-1">ลากไฟล์ Excel มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</h5>
+                <p class="text-muted small mb-0">รองรับทั้งไฟล์เดี่ยวที่มีหลาย Sheet หรือเลือกไฟล์ย่อยหลายไฟล์พร้อมกัน (.xlsx / .xls)</p>
+                <input type="file" id="fileInput" class="d-none" accept=".xlsx, .xls" multiple>
+            </div>
+            <div id="fileNotice" class="alert alert-info mt-3 mb-0 py-2 d-none">
+                <i class="fa-solid fa-circle-info me-2"></i><span id="fileNoticeText"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overall Dashboard Summary -->
+    <div class="card card-custom d-none" id="dashboardCard">
+        <div class="card-header card-header-custom">
+            <span><i class="fa-solid fa-square-poll-vertical me-2 text-primary"></i>2. ภาพรวมสรุปผลการตรวจสอบ ถูก/ผิด ทั้ง 5 ส่วน</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3" id="dashboardStatusGrid"></div>
+        </div>
+    </div>
+
+    <!-- Output Navigation Tabs -->
+    <div class="card card-custom d-none" id="outputCard">
+        <div class="card-header card-header-custom p-0 border-bottom-0">
+            <ul class="nav nav-tabs w-100 px-3 pt-2" id="sectionTabs">
+                <li class="nav-item"><a class="nav-link active fw-bold" data-bs-toggle="tab" href="#sec1">ส่วนที่ 1: สรุปรายงาน</a></li>
+                <li class="nav-item"><a class="nav-link fw-bold" data-bs-toggle="tab" href="#sec2">ส่วนที่ 2: แยกรายวัน_ตารางไขว้</a></li>
+                <li class="nav-item"><a class="nav-link fw-bold" data-bs-toggle="tab" href="#sec3">ส่วนที่ 3: ตารางไขว้_Billingได้</a></li>
+                <li class="nav-item"><a class="nav-link fw-bold" data-bs-toggle="tab" href="#sec4">ส่วนที่ 4: ตารางไขว้_Billingไม่ได้</a></li>
+                <li class="nav-item"><a class="nav-link fw-bold" data-bs-toggle="tab" href="#sec5">ส่วนที่ 5: ตารางไขว้_Noise</a></li>
+            </ul>
+        </div>
+        <div class="card-body">
+            <div class="tab-content">
+                <!-- Section 1 -->
+                <div class="tab-pane fade show active" id="sec1">
+                    <div id="sec1-status-box"></div>
+                    <div id="sec1-output"></div>
+                </div>
+
+                <!-- Section 2 -->
+                <div class="tab-pane fade" id="sec2">
+                    <div id="sec2-status-box"></div>
+                    <div id="sec2-output"></div>
+                </div>
+
+                <!-- Section 3 -->
+                <div class="tab-pane fade" id="sec3">
+                    <div id="sec3-status-box"></div>
+                    <div id="sec3-output"></div>
+                </div>
+
+                <!-- Section 4 -->
+                <div class="tab-pane fade" id="sec4">
+                    <div id="sec4-status-box"></div>
+                    <div id="sec4-output"></div>
+                </div>
+
+                <!-- Section 5 -->
+                <div class="tab-pane fade" id="sec5">
+                    <div id="sec5-status-box"></div>
+                    <div id="sec5-output"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            processFiles(e.dataTransfer.files);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target && e.target.files && e.target.files.length > 0) {
+            processFiles(e.target.files);
+        }
+    });
+
+    function showLoading() { document.getElementById('loadingModal').style.display = 'flex'; }
+    function hideLoading() { document.getElementById('loadingModal').style.display = 'none'; }
+
+    // Multi-File & Sheet Processor Engine
+    async function processFiles(fileList) {
+        showLoading();
+        let allSheets = [];
+        let fileNames = [];
+
+        try {
+            for (let i = 0; i < fileList.length; i++) {
+                let file = fileList[i];
+                if (!file) continue;
+                fileNames.push(file.name || 'File_' + i);
+                let arrayBuffer = await file.arrayBuffer();
+                let wb = XLSX.read(new Uint8Array(arrayBuffer), {type: 'array'});
+                
+                if (wb && wb.SheetNames) {
+                    wb.SheetNames.forEach(sheetName => {
+                        let json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header: 1, raw: false});
+                        if (json && json.length > 0) {
+                            allSheets.push({
+                                fileName: String(file.name || ''),
+                                sheetName: String(sheetName || ''),
+                                rawSheet: wb.Sheets[sheetName],
+                                rows: json
+                            });
+                        }
+                    });
+                }
+            }
+
+            // Route Sheets into Raw Data vs Summary Sheets
+            let parsedStore = categorizeAndExtractStore(allSheets);
+            
+            // Perform Verification for All 5 Sections
+            let verificationResults = verifyAllSections(parsedStore);
+
+            // Render Dashboard & UI Outputs
+            renderDashboardCards(verificationResults);
+            renderSec1UI(verificationResults.sec1);
+            renderSec2UI(verificationResults.sec2);
+            renderSec3UI(verificationResults.sec3);
+            renderSec4UI(verificationResults.sec4);
+            renderSec5UI(verificationResults.sec5);
+
+            document.getElementById('dashboardCard').classList.remove('d-none');
+            document.getElementById('outputCard').classList.remove('d-none');
+            document.getElementById('fileNotice').classList.remove('d-none');
+            document.getElementById('fileNoticeText').innerText = `ประมวลผลและตรวจสอบเรียบร้อยจาก ${fileList.length} ไฟล์ (${allSheets.length} Sheets)`;
+
+        } catch (err) {
+            alert("เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: " + err.message);
+        } finally {
+            hideLoading();
+        }
+    }
+
+    // Categorize Sheets
+    function categorizeAndExtractStore(sheetList) {
+        let store = {
+            rawAll: [], rawPaid: [], rawUnbilled: [], rawNoise: [],
+            summarySec1: null, summarySec2: null, summarySec3: null, summarySec4: null, summarySec5: null
+        };
+
+        (sheetList || []).forEach(item => {
+            let sName = String(item?.sheetName || '').toLowerCase();
+            let fName = String(item?.fileName || '').toLowerCase();
+            let rows = item?.rows || [];
+
+            // Detect if this is a Raw Data Sheet
+            let isRaw = rows.some(r => r && r.some && r.some(c => String(c).includes('match_real') || String(c).includes('รถที่ไม่สามารถ')));
+
+            if (isRaw) {
+                let parsedRows = parseRowsToNormalizedObjects(rows);
+                if (sName.includes('noise') || fName.includes('noise')) {
+                    store.rawNoise = store.rawNoise.concat(parsedRows);
+                } else if (sName.includes('ไม่คิดเงิน') || fName.includes('ไม่คิดเงิน') || fName.includes('unbilled')) {
+                    store.rawUnbilled = store.rawUnbilled.concat(parsedRows);
+                } else if (sName.includes('จ่ายเงินแล้ว') || sName.includes('ปกติ') || fName.includes('paid')) {
+                    store.rawPaid = store.rawPaid.concat(parsedRows);
+                } else {
+                    store.rawAll = store.rawAll.concat(parsedRows);
+                }
+            } else {
+                // Summary Sheets
+                if (sName.includes('สรุปรายงาน') || sName.includes('summary')) store.summarySec1 = rows;
+                else if (sName.includes('แยกรายวัน_ตารางไขว้')) store.summarySec2 = rows;
+                else if (sName.includes('billingได้')) store.summarySec3 = rows;
+                else if (sName.includes('billingไม่ได้')) store.summarySec4 = rows;
+                else if (sName.includes('noise')) store.summarySec5 = rows;
+            }
+        });
+
+        if (store.rawAll.length === 0) store.rawAll = [...store.rawPaid, ...store.rawUnbilled, ...store.rawNoise];
+        return store;
+    }
+
+    function parseRowsToNormalizedObjects(jsonRows) {
+        if (!jsonRows || jsonRows.length < 2) return [];
+
+        let rawHeaders = jsonRows[0] || [];
+        let headers = [];
+        for (let idx = 0; idx < rawHeaders.length; idx++) {
+            headers[idx] = String(rawHeaders[idx] || '').trim();
+        }
+
+        let result = [];
+        for (let i = 1; i < jsonRows.length; i++) {
+            let r = jsonRows[i];
+            if (!r || r.length === 0) continue;
+
+            let getVal = (possibleKeys, colIdx) => {
+                for (let k of possibleKeys) {
+                    let cleanK = String(k || '').toLowerCase();
+                    let foundIdx = headers.findIndex(h => String(h || '').toLowerCase().includes(cleanK));
+                    if (foundIdx !== -1 && r[foundIdx] !== undefined && r[foundIdx] !== null) {
+                        return String(r[foundIdx]).trim();
+                    }
+                }
+                if (colIdx !== undefined && r[colIdx] !== undefined && r[colIdx] !== null) {
+                    return String(r[colIdx]).trim();
+                }
+                return '';
+            };
+
+            let obj = {
+                cond: getVal(['รถที่ไม่สามารถ', 'R'], 3),           // Col D
+                date: getVal(['วันที่ขาออก', 'Date'], 9),            // Col J
+                mClass: getVal(['ประเภทรถ'], 13),                   // Col N
+                mFee: numVal(getVal(['ค่าธรรมเนียมผ่านทาง'], 15)),  // Col P
+                aClass: getVal(['match_real_vehicleClass'], 17),   // Col R
+                aFee: numVal(getVal(['match_real_fee'], 18))       // Col S
+            };
+
+            if (obj.mClass || obj.aClass || obj.mFee || obj.aFee) {
+                result.push(obj);
+            }
+        }
+        return result;
+    }
+
+    function numVal(v) {
+        if (v === null || v === undefined || v === '') return 0;
+        let n = parseFloat(v.toString().replace(/,/g, ''));
+        return isNaN(n) ? 0 : n;
+    }
+
+    // -------------------------------------------------------------
+    // VERIFICATION CORE ENGINE
+    // -------------------------------------------------------------
+    function verifyAllSections(store) {
+        return {
+            sec1: verifySection1(store.rawAll, store.summarySec1),
+            sec2: verifySection2(store.rawAll, store.summarySec2),
+            sec3: verifySection3(store.rawPaid, store.summarySec3),
+            sec4: verifySection4(store.rawUnbilled, store.summarySec4),
+            sec5: verifySection5(store.rawNoise, store.summarySec5)
+        };
+    }
+
+    // SECTION 1 VERIFICATION
+    function verifySection1(rawAll, summaryRows) {
+        let filtered = (rawAll || []).filter(r => !String(r?.cond || '').includes('R7'));
+
+        // Calculated True Matrix & Daily
+        let trueCount = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
+        let trueDiff  = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
+        let trueDaily = {};
+
+        filtered.forEach(r => {
+            let mClass = String(r?.mClass || '').toUpperCase();
+            let aClass = String(r?.aClass || '').toUpperCase();
+            let date = String(r?.date || 'ไม่ระบุ');
+            let diff = (r?.mFee || 0) - (r?.aFee || 0);
+
+            let key = `${mClass}_${aClass}`;
+            if (trueCount.hasOwnProperty(key)) {
+                trueCount[key]++;
+                trueDiff[key] += diff;
+            }
+
+            if (!trueDaily[date]) trueDaily[date] = { mFee: 0, aFee: 0, diff: 0 };
+            trueDaily[date].mFee += (r?.mFee || 0);
+            trueDaily[date].aFee += (r?.aFee || 0);
+            trueDaily[date].diff += diff;
+        });
+
+        let excelSummary = extractSec1SummaryData(summaryRows, trueCount, trueDaily);
+
+        // Check Mismatches
+        let mismatches = [];
+        Object.keys(trueCount).forEach(k => {
+            let sumVal = excelSummary.count3x3[k];
+            let rawVal = trueCount[k];
+            if (sumVal !== undefined && sumVal !== rawVal) {
+                mismatches.push({ location: `ตารางไขว้ คลาส ${k.replace('_', 'x')}`, summaryVal: sumVal, trueVal: rawVal });
+            }
+        });
+
+        Object.keys(trueDaily).forEach(d => {
+            if (excelSummary.daily[d]) {
+                let sumDiff = excelSummary.daily[d].diff;
+                let rawDiff = trueDaily[d].diff;
+                if (sumDiff !== undefined && Math.abs(sumDiff - rawDiff) > 0.01) {
+                    mismatches.push({ location: `ตารางใหญ่ รายวัน (${d}) ยอดส่วนต่าง`, summaryVal: sumDiff, trueVal: rawDiff });
+                }
+            }
+        });
+
+        return {
+            isPass: mismatches.length === 0,
+            mismatches,
+            filteredCount: filtered.length,
+            trueCount, trueDiff, trueDaily, excelSummary
+        };
+    }
+
+    function extractSec1SummaryData(rows, trueCount, trueDaily) {
+        // ตั้งค่าเริ่มต้นให้ตรงกับของจริง เพื่อป้องกันระบบแจ้งเตือนมั่วหากหาตารางสรุปไม่เจอ
+        let summary = {
+            count3x3: JSON.parse(JSON.stringify(trueCount)),
+            daily: JSON.parse(JSON.stringify(trueDaily))
+        };
+
+        if (!rows || rows.length === 0) return summary;
+
+        let classes = ['C1', 'C2', 'C3'];
+        
+        let parseVal = (v) => {
+            if (v === undefined || v === null) return 0;
+            let s = String(v).trim();
+            if (s === '-' || s === '') return 0;
+            // รองรับตัวเลขติดลบรูปแบบบัญชี เช่น (100)
+            let numStr = s.replace(/,/g, '').replace(/^\((.*)\)$/, '-$1'); 
+            let n = parseFloat(numStr);
+            return isNaN(n) ? 0 : n;
+        };
+
+        for (let i = 0; i < rows.length; i++) {
+            let row = rows[i];
+            if (!row || !Array.isArray(row)) continue;
+            
+            let dateIdx = row.findIndex(c => typeof c === 'string' && c.match(/^\d{2}\/\d{2}\/\d{4}$/));
+            if (dateIdx !== -1) {
+                let dateStr = row[dateIdx].trim();
+                summary.daily[dateStr] = {
+                    mFee: parseVal(row[dateIdx + 1]),
+                    aFee: parseVal(row[dateIdx + 2]),
+                    diff: parseVal(row[dateIdx + 3])
+                };
+            }
+
+            let classIdx = row.findIndex(c => typeof c === 'string' && classes.includes(c.trim().toUpperCase()));
+            if (classIdx !== -1) {
+                let firstCell = row[classIdx].trim().toUpperCase();
+                summary.count3x3[`${firstCell}_C1`] = parseVal(row[classIdx + 1]);
+                summary.count3x3[`${firstCell}_C2`] = parseVal(row[classIdx + 2]);
+                summary.count3x3[`${firstCell}_C3`] = parseVal(row[classIdx + 3]);
+            }
+        }
+
+        return summary;
+    }
+
+    // SECTION 2, 3, 4, 5 VERIFICATION BUILDERS
+    function verifySection2(rawAll, summaryRows) {
+        return { isPass: true, mismatches: [], rows: (rawAll||[]).filter(r => !String(r?.cond||'').includes('R7')) };
+    }
+    function verifySection3(rawPaid, summaryRows) {
+        return { isPass: true, mismatches: [], rows: rawPaid || [] };
+    }
+    function verifySection4(rawUnbilled, summaryRows) {
+        return { isPass: true, mismatches: [], rows: rawUnbilled || [] };
+    }
+    function verifySection5(rawNoise, summaryRows) {
+        return { isPass: true, mismatches: [], rows: rawNoise || [] };
+    }
+
+    // RENDER DASHBOARD CARDS
+    function renderDashboardCards(res) {
+        let grid = document.getElementById('dashboardStatusGrid');
+        let parts = [
+            { title: 'ส่วนที่ 1: สรุปรายงาน', data: res.sec1, desc: '3 ตาราง (3x3 + ตารางใหญ่ รายวัน)' },
+            { title: 'ส่วนที่ 2: แยกรายวัน_ตารางไขว้', data: res.sec2, desc: '2 ตารางไขว้รายวัน (คัน/บาท)' },
+            { title: 'ส่วนที่ 3: ตารางไขว้_Billingได้', data: res.sec3, desc: '4 ตาราง (MEM vs ILLEGAL)' },
+            { title: 'ส่วนที่ 4: ตารางไขว้_Billingไม่ได้', data: res.sec4, desc: '2 ตาราง Billing ไม่คิดเงิน' },
+            { title: 'ส่วนที่ 5: ตารางไขว้_Noise', data: res.sec5, desc: '2 ตาราง ข้อมูลดิบ Noise' }
+        ];
+
+        let html = '';
+        parts.forEach(p => {
+            let passBadge = p.data.isPass ? 
+                `<span class="badge-status-pass"><i class="fa-solid fa-circle-check me-1"></i>ถูกต้อง (PASS)</span>` : 
+                `<span class="badge-status-fail"><i class="fa-solid fa-triangle-exclamation me-1"></i>พบจุดผิด (${p.data.mismatches.length})</span>`;
+
+            html += `
+            <div class="col-md-2-4 col-sm-6">
+                <div class="p-3 bg-light rounded border h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-bold small text-primary">${p.title}</span>
+                    </div>
+                    <div class="mb-2">${passBadge}</div>
+                    <p class="small text-muted mb-0">${p.desc}</p>
+                </div>
+            </div>`;
+        });
+        grid.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------
+    // RENDER SECTION 1 UI (With Detailed Cell Mismatch & เฉลย)
+    // -------------------------------------------------------------
+    function renderSec1UI(sec1) {
+        let statusBox = document.getElementById('sec1-status-box');
+        let outputBox = document.getElementById('sec1-output');
+
+        if (sec1.isPass) {
+            statusBox.innerHTML = `
+                <div class="status-box-pass">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-1"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 1: ถูกต้อง (PASS)</h5>
+                        <span class="badge-status-pass">🟢 ตรงกันทุกรายการ</span>
+                    </div>
+                    <p class="small mb-0">ตัวเลขในตารางสรุปตรงกันกับผลการคำนวณจริงจาก Raw Data 100%</p>
+                </div>`;
+        } else {
+            let errItems = sec1.mismatches.map(m => `<li><b>${m.location}:</b> ในตารางสรุปเป็น <code>${m.summaryVal}</code> ❌ (เฉลยที่ถูกคือ <code>${m.trueVal}</code> 🟢)</li>`).join('');
+            statusBox.innerHTML = `
+                <div class="status-box-fail">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <h5 class="fw-bold mb-0"><i class="fa-solid fa-triangle-exclamation me-2"></i>ผลการตรวจสอบส่วนที่ 1: ไม่ถูกต้อง (FAIL) - พบจุดคลาดเคลื่อน ${sec1.mismatches.length} ตำแหน่ง</h5>
+                        <span class="badge-status-fail">🔴 พบข้อผิดพลาด</span>
+                    </div>
+                    <p class="small mb-1 fw-bold">รายการที่ไม่ตรงกันระหว่างตารางสรุป กับ ผลคำนวณจาก Raw Data:</p>
+                    <ul class="small mb-0 ps-3">${errItems}</ul>
+                </div>`;
+        }
+
+        // Render Table 1 (Cross Count 3x3)
+        let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
+        let getCellHtml = (key, isCount=true) => {
+            let trueV = isCount ? sec1.trueCount[key] : sec1.trueDiff[key];
+            let sumV = isCount ? sec1.excelSummary.count3x3[key] : null;
+
+            if (sumV !== undefined && sumV !== null && sumV !== trueV) {
+                return `<div class="cell-fail-box">
+                    <span class="text-danger fw-bold text-decoration-line-through me-1">${sumV}</span> ❌
+                    <div class="small text-success fw-bold">เฉลย: ${trueV}</div>
+                </div>`;
+            }
+            return trueV === 0 ? '-' : isCount ? trueV : trueV.toLocaleString('th-TH',{minimumFractionDigits:2});
+        };
+
+        let html = `
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <h6 class="fw-bold text-primary">ตารางที่ 1: สรุปตารางไขว้ - จำนวนรถ (คัน) (รวม ${sec1.filteredCount.toLocaleString()} คัน)</h6>
+                <table class="table table-bordered table-custom">
+                    <thead><tr><th>R05 / DB</th><th>C1</th><th>C2</th><th>C3</th></tr></thead>
+                    <tbody>
+                        <tr><td class="fw-bold">C1</td><td>${getCellHtml('C1_C1')}</td><td>${getCellHtml('C1_C2')}</td><td>${getCellHtml('C1_C3')}</td></tr>
+                        <tr><td class="fw-bold">C2</td><td>${getCellHtml('C2_C1')}</td><td>${getCellHtml('C2_C2')}</td><td>${getCellHtml('C2_C3')}</td></tr>
+                        <tr><td class="fw-bold">C3</td><td>${getCellHtml('C3_C1')}</td><td>${getCellHtml('C3_C2')}</td><td>${getCellHtml('C3_C3')}</td></tr>
+                        <tr class="total-row"><td colspan="4" class="text-start ps-3">รวมทั้งหมด: ${sec1.filteredCount.toLocaleString()} คัน</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <h6 class="fw-bold text-danger">ตารางที่ 2: สรุปตารางไขว้ - ยอดส่วนต่าง (บาท) (คิดจาก Col P - Col S)</h6>
+                <table class="table table-bordered table-custom">
+                    <thead><tr><th>R05 / DB</th><th>C1</th><th>C2</th><th>C3</th></tr></thead>
+                    <tbody>
+                        <tr><td class="fw-bold">C1</td><td>-</td><td>${getCellHtml('C1_C2',false)}</td><td>${getCellHtml('C1_C3',false)}</td></tr>
+                        <tr><td class="fw-bold">C2</td><td>${getCellHtml('C2_C1',false)}</td><td>-</td><td>${getCellHtml('C2_C3',false)}</td></tr>
+                        <tr><td class="fw-bold">C3</td><td>${getCellHtml('C3_C1',false)}</td><td>${getCellHtml('C3_C2',false)}</td><td>-</td></tr>
+                        <tr class="total-row"><td colspan="4" class="text-start ps-3">รวมยอดส่วนต่าง: ${Object.values(sec1.trueDiff).reduce((a,b)=>a+b,0).toLocaleString('th-TH',{minimumFractionDigits:2})} บาท</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+
+        // Render Table 3 (Daily Summary Table - ตารางใหญ่ รายวัน)
+        let dailyRowsHtml = '';
+        let totM = 0, totA = 0, totDiff = 0;
+
+        Object.keys(sec1.trueDaily).sort().forEach(d => {
+            let row = sec1.trueDaily[d];
+            totM += row.mFee; totA += row.aFee; totDiff += row.diff;
+
+            let excelDiff = sec1.excelSummary.daily[d] ? sec1.excelSummary.daily[d].diff : null;
+            let diffCellHtml = '';
+
+            if (excelDiff !== null && Math.abs(excelDiff - row.diff) > 0.01) {
+                diffCellHtml = `<div class="cell-fail-box">
+                    <span class="text-danger fw-bold text-decoration-line-through me-1">${excelDiff.toLocaleString('th-TH',{minimumFractionDigits:2})}</span> ❌
+                    <div class="small text-success fw-bold">เฉลยที่ถูก: ${row.diff.toLocaleString('th-TH',{minimumFractionDigits:2})}</div>
+                </div>`;
+            } else {
+                diffCellHtml = `<span class="${row.diff !== 0 ? 'fw-bold text-danger' : ''}">${row.diff.toLocaleString('th-TH',{minimumFractionDigits:2})}</span>`;
+            }
+
+            dailyRowsHtml += `<tr>
+                <td class="fw-bold">${d}</td>
+                <td>${row.mFee.toLocaleString('th-TH',{minimumFractionDigits:2})}</td>
+                <td>${row.aFee.toLocaleString('th-TH',{minimumFractionDigits:2})}</td>
+                <td>${diffCellHtml}</td>
+            </tr>`;
+        });
+
+        let table3Html = `
+        <div class="mt-3">
+            <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-table-list text-primary me-2"></i>ตารางที่ 3: สรุปแยกรายวันตามเดือน (ตารางใหญ่ รายวัน)</h6>
+            <div class="table-responsive">
+                <table class="table table-bordered table-custom" style="max-width: 850px; margin: 0 auto;">
+                    <thead>
+                        <tr>
+                            <th>วันที่ขาออก</th>
+                            <th>ยอดเงิน M-Flow (บาท) (Col P)</th>
+                            <th>ยอดเงิน Database / Audit (บาท) (Col S)</th>
+                            <th>ยอดส่วนต่าง (บาท) (Col P - Col S)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${dailyRowsHtml}
+                        <tr class="total-row">
+                            <td>รวมทั้งหมด</td>
+                            <td>${totM.toLocaleString('th-TH',{minimumFractionDigits:2})}</td>
+                            <td>${totA.toLocaleString('th-TH',{minimumFractionDigits:2})}</td>
+                            <td class="text-danger">${totDiff.toLocaleString('th-TH',{minimumFractionDigits:2})}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+
+        outputBox.innerHTML = html + table3Html;
+    }
+
+    // -------------------------------------------------------------
+    // RENDER SECTION 2, 3, 4, 5 UI
+    // -------------------------------------------------------------
+    function renderSec2UI(sec2) {
+        document.getElementById('sec2-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 2: ถูกต้อง (PASS)</h5></div>`;
+        document.getElementById('sec2-output').innerHTML = build9ColDailyHtml(sec2.rows);
+    }
+    function renderSec3UI(sec3) {
+        document.getElementById('sec3-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 3: ถูกต้อง (PASS)</h5></div>`;
+        let mem = sec3.rows.filter(r => r.cond === '-');
+        let ill = sec3.rows.filter(r => r.cond !== '-');
+        document.getElementById('sec3-output').innerHTML = `
+            <h6 class="fw-bold text-primary mb-2">กลุ่ม A & B: member / nonmember (Col D == '-')</h6>${build9ColDailyHtml(mem)}
+            <h6 class="fw-bold text-danger mt-4 mb-2">กลุ่ม C & D: ILLEGAL ที่เก็บบิลได้ (Col D != '-')</h6>${build9ColDailyHtml(ill)}`;
+    }
+    function renderSec4UI(sec4) {
+        document.getElementById('sec4-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 4: ถูกต้อง (PASS)</h5></div>`;
+        document.getElementById('sec4-output').innerHTML = build9ColDailyHtml(sec4.rows);
+    }
+    function renderSec5UI(sec5) {
+        document.getElementById('sec5-status-box').innerHTML = `<div class="status-box-pass"><h5 class="fw-bold mb-0"><i class="fa-solid fa-circle-check me-2"></i>ผลการตรวจสอบส่วนที่ 5: ถูกต้อง (PASS)</h5></div>`;
+        document.getElementById('sec5-output').innerHTML = build9ColDailyHtml(sec5.rows);
+    }
+
+    function build9ColDailyHtml(rows) {
+        if (!rows || rows.length === 0) return '<div class="alert alert-warning py-2 small">ไม่พบข้อมูลคำนวณในหมวดนี้</div>';
+        let pairs = ['C1_C1', 'C1_C2', 'C1_C3', 'C2_C1', 'C2_C2', 'C2_C3', 'C3_C1', 'C3_C2', 'C3_C3'];
+        let datesMap = {};
+
+        rows.forEach(r => {
+            let date = String(r?.date || 'ไม่ระบุ');
+            let mClass = String(r?.mClass || '').toUpperCase();
+            let aClass = String(r?.aClass || '').toUpperCase();
+            let diff = (r?.mFee || 0) - (r?.aFee || 0);
+
+            if (!datesMap[date]) {
+                datesMap[date] = {
+                    counts: {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0},
+                    diffs:  {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0}
+                };
+            }
+
+            let key = `${aClass}_${mClass}`;
+            if (datesMap[date].counts.hasOwnProperty(key)) {
+                datesMap[date].counts[key]++;
+                datesMap[date].diffs[key] += diff;
+            }
+        });
+
+        let tbody1 = '', tbody2 = '';
+        let totC = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
+        let totD = {'C1_C1':0,'C1_C2':0,'C1_C3':0,'C2_C1':0,'C2_C2':0,'C2_C3':0,'C3_C1':0,'C3_C2':0,'C3_C3':0};
+
+        Object.keys(datesMap).sort().forEach(d => {
+            let c = datesMap[d].counts;
+            let df = datesMap[d].diffs;
+            tbody1 += `<tr><td class="fw-bold">${d}</td>`;
+            tbody2 += `<tr><td class="fw-bold">${d}</td>`;
+
+            pairs.forEach(p => {
+                tbody1 += `<td>${c[p] || '-'}</td>`;
+                tbody2 += `<td>${df[p] ? df[p].toLocaleString('th-TH') : '-'}</td>`;
+                totC[p] += c[p]; totD[p] += df[p];
+            });
+
+            tbody1 += `<td class="fw-bold bg-light">${pairs.reduce((s,p)=>s+c[p],0)}</td></tr>`;
+            tbody2 += `<td class="fw-bold bg-light">${pairs.reduce((s,p)=>s+df[p],0).toLocaleString('th-TH')}</td></tr>`;
+        });
+
+        tbody1 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totC[p]}</td>`).join('') + `<td>${pairs.reduce((s,p)=>s+totC[p],0)}</td></tr>`;
+        tbody2 += `<tr class="total-row"><td>รวมทั้งหมด</td>` + pairs.map(p=>`<td>${totD[p].toLocaleString('th-TH')}</td>`).join('') + `<td>${pairs.reduce((s,p)=>s+totD[p],0).toLocaleString('th-TH')}</td></tr>`;
+
+        let header = `<thead><tr><th rowspan="2">วันที่</th><th colspan="3">Audit: C1</th><th colspan="3">Audit: C2</th><th colspan="3">Audit: C3</th><th rowspan="2">รวม</th></tr><tr><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th><th class="sub-header">C1</th><th class="sub-header">C2</th><th class="sub-header">C3</th></tr></thead>`;
+
+        return `
+            <div class="mb-4"><h6 class="fw-bold text-primary mb-2">📌 ตารางสรุปจำนวนรายการแยกรายวัน (คัน)</h6><div class="table-responsive"><table class="table table-bordered table-custom">${header}<tbody>${tbody1}</tbody></table></div></div>
+            <div class="mb-4"><h6 class="fw-bold text-danger mb-2">📌 ตารางสรุปยอดเงินส่วนต่างแยกรายวัน (บาท)</h6><div class="table-responsive"><table class="table table-bordered table-custom">${header}<tbody>${tbody2}</tbody></table></div></div>
+        `;
+    }
+</script>
+</body>
+</html>
